@@ -66,6 +66,7 @@ class Store:
             "boardId": _new_id(),
             "title": "Team Retro",
             "hidden": True,
+            "sorted": False,
             "columns": [dict(c) for c in DEFAULT_COLUMNS],
             "cards": [],
         }
@@ -110,6 +111,7 @@ class Store:
             "boardId": d["boardId"],
             "title": d["title"],
             "hidden": hidden,
+            "sorted": d["sorted"],
             "columns": d["columns"],
             "cards": [
                 {
@@ -239,6 +241,12 @@ class Store:
             self._commit()
             return {"ok": True}
 
+    def set_sorted(self, sorted_):
+        with self.cond:
+            self.data["sorted"] = bool(sorted_)
+            self._commit()
+            return {"ok": True}
+
     def clear(self):
         with self.cond:
             archived = None
@@ -251,6 +259,7 @@ class Store:
             self.data["cards"] = []
             self.data["boardId"] = _new_id()
             self.data["hidden"] = True
+            self.data["sorted"] = False
             self._commit()
             return {"ok": True, "archived": os.path.basename(archived) if archived else None}
 
@@ -446,6 +455,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/admin/hidden":
                 self._require_admin()
                 r = s.set_hidden(b.get("hidden"))
+            elif path == "/api/admin/sorted":
+                self._require_admin()
+                r = s.set_sorted(b.get("sorted"))
             elif path == "/api/admin/clear":
                 self._require_admin()
                 r = s.clear()
@@ -569,6 +581,7 @@ header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:14px
 .btn.danger{color:var(--danger)}
 .btn:disabled{opacity:.5;cursor:default}
 .toggle{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);user-select:none}
+.toggle.off{opacity:.55}
 .icon{border:0;background:none;padding:4px;border-radius:6px;color:var(--muted);line-height:0}
 .icon:hover{background:var(--surface-2);color:var(--text)}
 .icon svg{width:16px;height:16px}
@@ -643,6 +656,7 @@ dialog .row{display:flex;justify-content:flex-end;gap:8px}
 <div class="adminbar" id="adminbar">
   <span class="label">Facilitator</span>
   <button class="btn primary" id="revealBtn">Reveal cards</button>
+  <button class="btn" id="sortAllBtn">Sort by votes for everyone</button>
   <button class="btn" id="addColBtn">+ Add column</button>
   <span class="sep"></span>
   <span>Export:</span>
@@ -785,6 +799,16 @@ function render(){
   $("adminBtn").hidden = admin;
   const rb = $("renameBoard"); rb.hidden = !admin; rb.innerHTML = ICON.pencil;
   $("revealBtn").textContent = state.hidden ? "Reveal cards" : "Hide cards";
+  const sortAll = $("sortAllBtn");
+  sortAll.textContent = state.sorted ? "Stop sorting for everyone" : "Sort by votes for everyone";
+  sortAll.disabled = state.hidden;
+  sortAll.title = state.hidden ? "Reveal cards first — there are no votes yet" : "";
+  sortBox.checked = state.sorted || !!store.get("retro.sort", false);
+  sortBox.disabled = state.sorted || state.hidden;
+  const sortLabel = sortBox.parentElement;
+  sortLabel.classList.toggle("off", sortBox.disabled);
+  sortLabel.title = state.sorted ? "The facilitator is sorting the board for everyone"
+    : state.hidden ? "Sorting is available once cards are revealed" : "Sort cards on your screen only";
 
   const banner = $("banner");
   const total = state.cards.length;
@@ -848,7 +872,7 @@ function updateColumn(node, col, admin){
   node.querySelector("textarea").setAttribute("aria-label", "New card for " + col.title);
 
   let list = cards.slice();
-  if(sortBox.checked && !state.hidden) list.sort((a, b) => b.votes - a.votes);
+  if((state.sorted || sortBox.checked) && !state.hidden) list.sort((a, b) => b.votes - a.votes);
   const ul = node.querySelector(".cards");
   const keep = {};
   ul.querySelectorAll(".card.editing").forEach(li => keep[li.dataset.id] = li);
@@ -957,6 +981,7 @@ $("adminBtn").onclick = async () => {
 };
 $("logoutBtn").onclick = () => { passcode = ""; try{ sessionStorage.removeItem("retro.passcode"); }catch(e){} render(); };
 $("revealBtn").onclick = () => run(() => api("/api/admin/hidden", {hidden: !state.hidden})).catch(() => {});
+$("sortAllBtn").onclick = () => run(() => api("/api/admin/sorted", {sorted: !state.sorted})).catch(() => {});
 $("addColBtn").onclick = async () => {
   const t = await ask({title:"Add column", input:{placeholder:"Column name, e.g. Shout-outs"}, ok:"Add"});
   if(t && t.trim()) run(() => api("/api/admin/add-column", {title:t.trim()})).catch(() => {});

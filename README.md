@@ -18,6 +18,8 @@ An anonymous retro board for the whole team. It's one Python file with nothing t
 
 ## Facilitator controls
 - Reveal or hide cards
+- **Sort by votes for everyone**: puts the most-voted cards at the top of each column on every screen,
+  handy while discussing. (Anyone can also tick **Sort by votes** to sort just their own screen.)
 - Rename the board or any column (use the pencil icons)
 - Add a column (**+ Add column**, up to 8) or remove one (trash icon on the column; this also deletes its cards)
 - Delete any card
