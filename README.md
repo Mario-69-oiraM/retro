@@ -20,6 +20,8 @@ An anonymous retro board for the whole team. It's one Python file with nothing t
 - Reveal or hide cards
 - **Sort by votes for everyone**: puts the most-voted cards at the top of each column on every screen,
   handy while discussing. (Anyone can also tick **Sort by votes** to sort just their own screen.)
+- **Hide vote counts**: people can still vote and see which cards they voted for, but nobody sees the totals
+  until you click **Show vote counts**. Sorting pauses while counts are hidden. Exports always include the counts.
 - Rename the board or any column (use the pencil icons)
 - Add a column (**+ Add column**, up to 8) or remove one (trash icon on the column; this also deletes its cards)
 - Delete any card
