@@ -1,0 +1,4 @@
+retro-data.json
+*.tmp
+.DS_Store
+__pycache__/
