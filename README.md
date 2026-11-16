@@ -25,6 +25,10 @@ An anonymous retro board for the whole team. It's one Python file with nothing t
 - Rename the board or any column (use the pencil icons)
 - Add a column (**+ Add column**, up to 8) or remove one (trash icon on the column; this also deletes its cards)
 - Delete any card
+- **Combine cards**: once cards are revealed, drag one card onto another (on a computer, not a phone).
+  They show as one card with the votes added together.
+- **Split cards**: click the split icon on a combined card to put every original card back, each with its
+  own text and votes, in the column it came from.
 - Export (Markdown, CSV for Excel, JSON)
 - Clear the board (archived automatically)
 

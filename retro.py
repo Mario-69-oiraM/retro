@@ -121,7 +121,8 @@ class Store:
                     "id": c["id"],
                     "column": c["column"],
                     "text": None if hidden else c["text"],
-                    "votes": len(c["votes"]),
+                    "parts": [None if hidden else p["text"] for p in c.get("parts", [])],
+                    "votes": card_votes(c),
                 }
                 for c in d["cards"]
             ],
@@ -172,6 +173,8 @@ class Store:
             owner = secrets.compare_digest(card["keyHash"], _sha(str(key or "")))
             if not (owner or is_admin):
                 raise ApiError(403, "You can only delete your own cards.")
+            if card.get("parts") and not is_admin:
+                raise ApiError(403, "This card is combined with others. Ask the facilitator to split it first.")
             self.data["cards"].remove(card)
             self._commit()
             return {"ok": True}
@@ -196,6 +199,41 @@ class Store:
             return {"voted": voted}
 
     # ---- facilitator operations -------------------------------------------
+    def merge_cards(self, source_id, target_id):
+        """Tuck the source card (and anything combined into it) inside the target.
+
+        Each original card is kept whole in the target's "parts", so a split
+        restores every card with its own text, votes and owner.
+        """
+        with self.cond:
+            if self.data["hidden"]:
+                raise ApiError(409, "Reveal cards before combining them.")
+            if source_id == target_id:
+                raise ApiError(400, "Pick two different cards.")
+            src, dst = self._card(source_id), self._card(target_id)
+            nested = src.pop("parts", [])
+            dst["parts"] = dst.get("parts", []) + [src] + nested
+            self.data["cards"].remove(src)
+            self._commit()
+            return {"ok": True}
+
+    def split_card(self, card_id):
+        """Put every card inside a combined card back on the board."""
+        with self.cond:
+            card = self._card(card_id)
+            parts = card.pop("parts", [])
+            if not parts:
+                raise ApiError(400, "This card isn't combined.")
+            columns = self._column_ids()
+            for part in parts:
+                # Back to the column it came from, if that column still exists.
+                if part["column"] not in columns:
+                    part["column"] = card["column"]
+            i = self.data["cards"].index(card)
+            self.data["cards"][i + 1:i + 1] = parts
+            self._commit()
+            return {"ok": True}
+
     def rename_column(self, column, title):
         title = clean_text(title, MAX_TITLE_LEN, "Column name")
         with self.cond:
@@ -285,6 +323,15 @@ class ApiError(Exception):
         self.message = message
 
 
+def card_votes(c):
+    """Votes on a card plus every card combined into it."""
+    return len(c["votes"]) + sum(len(p["votes"]) for p in c.get("parts", []))
+
+
+def card_text(c):
+    return "\n\n".join([c["text"]] + [p["text"] for p in c.get("parts", [])])
+
+
 def clean_text(value, limit, label):
     text = str(value or "").strip()
     if not text:
@@ -305,10 +352,10 @@ def export_data(data):
     }
     for col in data["columns"]:
         cards = [c for c in data["cards"] if c["column"] == col["id"]]
-        cards.sort(key=lambda c: -len(c["votes"]))
+        cards.sort(key=lambda c: -card_votes(c))
         out["columns"].append({
             "title": col["title"],
-            "cards": [{"text": c["text"], "votes": len(c["votes"])} for c in cards],
+            "cards": [{"text": card_text(c), "votes": card_votes(c)} for c in cards],
         })
     return out
 
@@ -450,6 +497,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/admin/check":
                 self._require_admin()
                 r = {"ok": True}
+            elif path == "/api/admin/merge":
+                self._require_admin()
+                r = s.merge_cards(b.get("source"), b.get("target"))
+            elif path == "/api/admin/split":
+                self._require_admin()
+                r = s.split_card(b.get("id"))
             elif path == "/api/admin/rename-column":
                 self._require_admin()
                 r = s.rename_column(b.get("column"), b.get("title"))
@@ -629,6 +682,10 @@ main{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1
 .card{background:var(--cbg);border-radius:10px;padding:10px 12px 8px;border:1px solid transparent}
 .card.mine{border-color:color-mix(in srgb,var(--c) 45%,transparent)}
 .card .text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.card[draggable=true]{cursor:grab}
+.card.dragging{opacity:.4}
+.card.drop{outline:2px dashed var(--c);outline-offset:2px}
+.card .text.part{margin-top:8px;padding-top:8px;border-top:1px dashed color-mix(in srgb,var(--c) 45%,transparent)}
 .card.masked .text{filter:blur(5px);user-select:none;color:var(--muted)}
 .meta{display:flex;align-items:center;gap:4px;margin-top:6px;min-height:26px}
 .tag{font-size:11px;color:var(--c);font-weight:600;margin-right:auto}
@@ -709,6 +766,7 @@ function colColors(col){
 const ICON = {
   pencil:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>',
+  split:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.17-2.87L3 3"/><path d="m15 9 6-6"/></svg>',
   up:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l8 10h-5v6H9v-6H4z"/></svg>'
 };
 
@@ -725,7 +783,7 @@ let voted = store.get("retro.voted", {boardId:null, ids:[]});
 let passcode = "";
 try{ passcode = sessionStorage.getItem("retro.passcode") || ""; }catch(e){}
 
-let state = null, version = 0, editingId = null;
+let state = null, version = 0, editingId = null, dragId = null, renderPending = false;
 const drafts = {};
 const $ = id => document.getElementById(id);
 const sortBox = $("sortVotes");
@@ -800,6 +858,8 @@ function apply(s){
   // Keep cached text of own cards current once revealed.
   if(!s.hidden){ for(const c of s.cards){ if(mine.cards[c.id]) mine.cards[c.id].text = c.text; } store.set("retro.mine", mine); }
   state = s;
+  // Re-rendering mid-drag would remove the card being dragged; catch up on dragend.
+  if(dragId){ renderPending = true; return; }
   render();
 }
 
@@ -919,7 +979,8 @@ function buildCard(card, admin){
   let text = card.text;
   if(state.hidden) text = own ? (own.text || "(your card)") : "Hidden until the facilitator reveals cards";
   const li = el("li", {class:"card" + (own ? " mine" : "") + (masked ? " masked" : ""), "data-id":card.id});
-  const p = el("p", {class:"text"}, text);
+  const body = [el("p", {class:"text"}, text)];
+  if(!state.hidden) for(const t of card.parts) body.push(el("p", {class:"text part"}, t));
   // With highlights off, your vote buttons don't show which cards you voted for.
   const blind = state.highlightsHidden;
   const isVoted = voted.ids.includes(card.id);
@@ -939,18 +1000,66 @@ function buildCard(card, admin){
       if(state.highlightsHidden) toast(r.voted ? "Vote added" : "Vote removed");
     }catch(e){ voteBtn.disabled = false; }
   };
-  const meta = el("div", {class:"meta"}, own ? el("span", {class:"tag"}, state.hidden ? "Your card · only you can see it" : "Your card") : el("span", {class:"spacer"}));
+  const labels = [];
+  if(own) labels.push(state.hidden ? "Your card · only you can see it" : "Your card");
+  if(card.parts.length) labels.push("Combined from " + (card.parts.length + 1) + " cards");
+  const meta = el("div", {class:"meta"}, labels.length ? el("span", {class:"tag"}, labels.join(" · ")) : el("span", {class:"spacer"}));
   if(own) meta.append(el("button", {class:"icon", title:"Edit", html:ICON.pencil, onclick:() => startEdit(li, card)}));
-  if(own || admin) meta.append(el("button", {class:"icon", title: own ? "Delete" : "Delete (facilitator)", html:ICON.trash, onclick:() => removeCard(card, own)}));
+  if(admin && card.parts.length) meta.append(el("button", {class:"icon", title:"Split into separate cards", html:ICON.split, onclick:() => splitCard(card)}));
+  // A combined card holds other people's cards, so only the facilitator can delete it.
+  if(admin || (own && !card.parts.length)) meta.append(el("button", {class:"icon", title: own ? "Delete" : "Delete (facilitator)", html:ICON.trash, onclick:() => removeCard(card, own)}));
   meta.append(voteBtn);
-  li.append(p, meta);
+  li.append(...body, meta);
+  if(admin && !state.hidden) makeDraggable(li, card);
   return li;
+}
+
+// ---- combining cards (facilitator): drag one card onto another
+function makeDraggable(li, card){
+  li.draggable = true;
+  li.title = "Drag onto another card to combine them";
+  li.ondragstart = ev => {
+    dragId = card.id;
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", card.id);
+    li.classList.add("dragging");
+  };
+  li.ondragend = () => {
+    dragId = null;
+    document.querySelectorAll(".card.dragging,.card.drop").forEach(x => x.classList.remove("dragging", "drop"));
+    if(renderPending){ renderPending = false; render(); }
+  };
+  li.ondragover = ev => {
+    if(!dragId || dragId === card.id) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+    li.classList.add("drop");
+  };
+  li.ondragleave = ev => { if(!li.contains(ev.relatedTarget)) li.classList.remove("drop"); };
+  li.ondrop = ev => {
+    ev.preventDefault();
+    li.classList.remove("drop");
+    const src = dragId;
+    if(src && src !== card.id) combine(src, card);
+  };
+}
+
+async function combine(sourceId, target){
+  const src = state.cards.find(c => c.id === sourceId);
+  if(!src) return;
+  const votes = src.votes + target.votes;
+  const okd = await ask({title:"Combine these cards?",
+    message:"They’ll show as one card with their votes added together (" + votes + " vote" + (votes === 1 ? "" : "s") + "). You can split them again later.",
+    ok:"Combine"});
+  if(!okd) return;
+  try{ await run(() => api("/api/admin/merge", {source:sourceId, target:target.id})); }catch(e){}
 }
 
 function startEdit(li, card){
   const own = mine.cards[card.id]; if(!own) return;
   editingId = card.id;
   li.classList.add("editing");
+  li.draggable = false;
   const ta = el("textarea", {class:"edit-area", maxlength:"1000", "aria-label":"Edit card"});
   ta.value = card.text != null ? card.text : (own.text || "");
   const finish = () => { editingId = null; render(); };
@@ -980,8 +1089,15 @@ async function removeColumn(col, count){
   try{ await run(() => api("/api/admin/delete-column", {column:col.id})); delete drafts[col.id]; }catch(e){}
 }
 
+async function splitCard(card){
+  try{ await run(() => api("/api/admin/split", {id:card.id})); toast("Split into " + (card.parts.length + 1) + " cards"); }catch(e){}
+}
+
 async function removeCard(card, own){
-  const okd = await ask({title:"Delete this card?", message: own ? "This removes your card for everyone." : "As facilitator you're deleting someone else's card.", ok:"Delete", danger:true});
+  const n = card.parts.length + 1;
+  const msg = n > 1 ? "This deletes all " + n + " cards combined here, for everyone. To keep them, split the card first."
+    : own ? "This removes your card for everyone." : "As facilitator you're deleting someone else's card.";
+  const okd = await ask({title: n > 1 ? "Delete this combined card?" : "Delete this card?", message:msg, ok:"Delete", danger:true});
   if(!okd) return;
   try{
     await run(() => api("/api/cards/delete", {id:card.id, key: own ? own.key : null}));
