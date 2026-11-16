@@ -42,3 +42,21 @@ python3 retro.py --data other-team.json # separate board per team
   or teammates won't be able to reach the board.
 - Everyone needs to be on the same network or VPN as the facilitator's machine.
 - Data is saved to `retro-data.json` after every change. Stopping and restarting the server keeps the board.
+
+## Run it on a public server (Render)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Mario-69-oiraM/retro)
+
+1. Click the button above (or in Render: **New → Blueprint** and pick this repo). It uses `render.yaml`.
+2. When asked for `RETRO_PASSCODE`, enter a private facilitator passcode. It's stored on Render, not in this repo.
+3. Render gives you a public `https://retro-….onrender.com` link to share.
+
+Settings the server reads:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `PORT` | Port to listen on (Render sets this) | `8080` |
+| `RETRO_PASSCODE` | Facilitator passcode | `12345` |
+| `RETRO_DATA` | Path of the board data file | `retro-data.json` next to `retro.py` |
+
+On Render's free plan the service sleeps after about 15 minutes idle and the board data resets when it restarts. To keep data, switch to a paid plan and enable the disk in `render.yaml`.

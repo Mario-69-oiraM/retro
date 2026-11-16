@@ -1,0 +1,18 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: retro
+    runtime: python
+    plan: free
+    buildCommand: "true"
+    startCommand: python3 retro.py
+    healthCheckPath: /
+    envVars:
+      - key: RETRO_PASSCODE
+        sync: false   # Render asks you for this value; it is never stored in the repo
+    # To keep board data across restarts, switch to a paid plan and uncomment:
+    # disk:
+    #   name: retro-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # and add an env var RETRO_DATA=/var/data/retro-data.json

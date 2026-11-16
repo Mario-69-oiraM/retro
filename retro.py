@@ -472,14 +472,16 @@ def lan_ip():
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description="Anonymous retro board server.")
-    ap.add_argument("--port", type=int, default=8080, help="port to listen on (default 8080)")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8080)),
+                    help="port to listen on (default: $PORT or 8080)")
     ap.add_argument("--host", default="0.0.0.0", help="interface to bind (default: all)")
-    ap.add_argument("--data", default=os.path.join(here, "retro-data.json"),
-                    help="board data file (default: retro-data.json next to this script)")
+    ap.add_argument("--data", default=os.environ.get("RETRO_DATA") or os.path.join(here, "retro-data.json"),
+                    help="board data file (default: $RETRO_DATA or retro-data.json next to this script)")
     args = ap.parse_args()
 
     Handler.store = Store(os.path.abspath(args.data))
-    Handler.passcode = "12345"
+    env_passcode = os.environ.get("RETRO_PASSCODE", "").strip()
+    Handler.passcode = env_passcode or "12345"
 
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), Handler)
@@ -497,7 +499,10 @@ def main():
     print(f"  (or by machine name:            http://{host}:{args.port})")
     print(f"  On this computer:               http://localhost:{args.port}")
     print()
-    print(f"  Facilitator passcode:  {Handler.passcode}")
+    if env_passcode:
+        print("  Facilitator passcode:  (set from RETRO_PASSCODE)")
+    else:
+        print(f"  Facilitator passcode:  {Handler.passcode}")
     print(f"  Data file:             {Handler.store.path}")
     print()
     print("  Press Ctrl+C to stop. The board is saved after every change.")
