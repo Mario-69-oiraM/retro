@@ -39,6 +39,7 @@ DEFAULT_COLUMNS = [
     {"id": "well", "title": "What went well", "color": "well"},
     {"id": "notwell", "title": "What didn't go well", "color": "notwell"},
     {"id": "actions", "title": "Actions", "color": "actions"},
+    {"id": "kudos", "title": "Kudos", "color": "amber"},
 ]
 # Colour keys the page knows about; new columns take the first one not in use.
 PALETTE = ["well", "notwell", "actions", "purple", "amber", "teal", "pink", "slate"]
@@ -67,7 +68,7 @@ class Store:
             "title": "Team Retro",
             "hidden": True,
             "sorted": False,
-            "votesHidden": False,
+            "highlightsHidden": False,
             "columns": [dict(c) for c in DEFAULT_COLUMNS],
             "cards": [],
         }
@@ -107,22 +108,20 @@ class Store:
     def public(self):
         d = self.data
         hidden = d["hidden"]
-        # Counts are withheld server-side so they can't be read from the page.
-        counts = not d["votesHidden"]
         return {
             "version": d["version"],
             "boardId": d["boardId"],
             "title": d["title"],
             "hidden": hidden,
             "sorted": d["sorted"],
-            "votesHidden": d["votesHidden"],
+            "highlightsHidden": d["highlightsHidden"],
             "columns": d["columns"],
             "cards": [
                 {
                     "id": c["id"],
                     "column": c["column"],
                     "text": None if hidden else c["text"],
-                    "votes": len(c["votes"]) if counts else None,
+                    "votes": len(c["votes"]),
                 }
                 for c in d["cards"]
             ],
@@ -251,9 +250,9 @@ class Store:
             self._commit()
             return {"ok": True}
 
-    def set_votes_hidden(self, hidden):
+    def set_highlights_hidden(self, hidden):
         with self.cond:
-            self.data["votesHidden"] = bool(hidden)
+            self.data["highlightsHidden"] = bool(hidden)
             self._commit()
             return {"ok": True}
 
@@ -270,7 +269,7 @@ class Store:
             self.data["boardId"] = _new_id()
             self.data["hidden"] = True
             self.data["sorted"] = False
-            self.data["votesHidden"] = False
+            self.data["highlightsHidden"] = False
             self._commit()
             return {"ok": True, "archived": os.path.basename(archived) if archived else None}
 
@@ -469,9 +468,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/admin/sorted":
                 self._require_admin()
                 r = s.set_sorted(b.get("sorted"))
-            elif path == "/api/admin/votes-hidden":
+            elif path == "/api/admin/highlights-hidden":
                 self._require_admin()
-                r = s.set_votes_hidden(b.get("hidden"))
+                r = s.set_highlights_hidden(b.get("hidden"))
             elif path == "/api/admin/clear":
                 self._require_admin()
                 r = s.clear()
@@ -671,7 +670,7 @@ dialog .row{display:flex;justify-content:flex-end;gap:8px}
   <span class="label">Facilitator</span>
   <button class="btn primary" id="revealBtn">Reveal cards</button>
   <button class="btn" id="sortAllBtn">Sort by votes for everyone</button>
-  <button class="btn" id="hideVotesBtn">Hide vote counts</button>
+  <button class="btn" id="hideVotesBtn">Hide my-vote highlights</button>
   <button class="btn" id="addColBtn">+ Add column</button>
   <span class="sep"></span>
   <span>Export:</span>
@@ -816,24 +815,23 @@ function render(){
   $("revealBtn").textContent = state.hidden ? "Reveal cards" : "Hide cards";
   const sortAll = $("sortAllBtn");
   sortAll.textContent = state.sorted ? "Stop sorting for everyone" : "Sort by votes for everyone";
-  sortAll.disabled = state.hidden || state.votesHidden;
-  sortAll.title = state.hidden ? "Reveal cards first — there are no votes yet"
-    : state.votesHidden ? "Show vote counts first — sorting would reveal them" : "";
-  $("hideVotesBtn").textContent = state.votesHidden ? "Show vote counts" : "Hide vote counts";
+  sortAll.disabled = state.hidden;
+  sortAll.title = state.hidden ? "Reveal cards first — there are no votes yet" : "";
+  const hv = $("hideVotesBtn");
+  hv.textContent = state.highlightsHidden ? "Show my-vote highlights" : "Hide my-vote highlights";
+  hv.title = "Whether each person's own votes are highlighted on their screen";
   sortBox.checked = state.sorted || !!store.get("retro.sort", false);
-  sortBox.disabled = state.sorted || state.hidden || state.votesHidden;
+  sortBox.disabled = state.sorted || state.hidden;
   const sortLabel = sortBox.parentElement;
   sortLabel.classList.toggle("off", sortBox.disabled);
-  sortLabel.title = state.votesHidden ? "Sorting is paused while vote counts are hidden"
-    : state.sorted ? "The facilitator is sorting the board for everyone"
+  sortLabel.title = state.sorted ? "The facilitator is sorting the board for everyone"
     : state.hidden ? "Sorting is available once cards are revealed" : "Sort cards on your screen only";
 
   const banner = $("banner");
   const total = state.cards.length;
-  banner.classList.toggle("on", state.hidden || state.votesHidden);
+  banner.classList.toggle("on", state.hidden);
   banner.textContent = state.hidden
     ? "Cards are hidden while everyone writes. You can see your own cards; the facilitator will reveal the rest. " + total + " card" + (total === 1 ? "" : "s") + " posted so far. Voting opens on reveal."
-    : state.votesHidden ? "Vote counts are hidden so nobody is swayed by others' votes. Your own votes are highlighted; the facilitator will show the totals."
     : "";
 
   const board = $("board");
@@ -891,7 +889,7 @@ function updateColumn(node, col, admin){
   node.querySelector("textarea").setAttribute("aria-label", "New card for " + col.title);
 
   let list = cards.slice();
-  if((state.sorted || sortBox.checked) && !state.hidden && !state.votesHidden) list.sort((a, b) => b.votes - a.votes);
+  if((state.sorted || sortBox.checked) && !state.hidden) list.sort((a, b) => b.votes - a.votes);
   const ul = node.querySelector(".cards");
   const keep = {};
   ul.querySelectorAll(".card.editing").forEach(li => keep[li.dataset.id] = li);
@@ -922,11 +920,15 @@ function buildCard(card, admin){
   if(state.hidden) text = own ? (own.text || "(your card)") : "Hidden until the facilitator reveals cards";
   const li = el("li", {class:"card" + (own ? " mine" : "") + (masked ? " masked" : ""), "data-id":card.id});
   const p = el("p", {class:"text"}, text);
+  // With highlights off, your vote buttons don't show which cards you voted for.
+  const blind = state.highlightsHidden;
   const isVoted = voted.ids.includes(card.id);
-  const voteBtn = el("button", {class:"vote" + (isVoted ? " on" : ""), disabled:state.hidden,
-    title: state.hidden ? "Voting opens when cards are revealed" : (isVoted ? "Remove your vote" : "Vote for this card"),
-    "aria-pressed": isVoted ? "true" : "false", html:ICON.up});
-  if(card.votes != null) voteBtn.append(String(card.votes));
+  const voteBtn = el("button", {class:"vote" + (isVoted && !blind ? " on" : ""), disabled:state.hidden,
+    title: state.hidden ? "Voting opens when cards are revealed"
+      : blind ? "Vote (click again to remove your vote)"
+      : (isVoted ? "Remove your vote" : "Vote for this card"),
+    "aria-pressed": blind ? false : (isVoted ? "true" : "false"), html:ICON.up});
+  voteBtn.append(String(card.votes));
   voteBtn.onclick = async () => {
     voteBtn.disabled = true;
     try{
@@ -934,6 +936,7 @@ function buildCard(card, admin){
       voted.ids = voted.ids.filter(x => x !== card.id);
       if(r.voted) voted.ids.push(card.id);
       store.set("retro.voted", voted);
+      if(state.highlightsHidden) toast(r.voted ? "Vote added" : "Vote removed");
     }catch(e){ voteBtn.disabled = false; }
   };
   const meta = el("div", {class:"meta"}, own ? el("span", {class:"tag"}, state.hidden ? "Your card · only you can see it" : "Your card") : el("span", {class:"spacer"}));
@@ -1001,7 +1004,7 @@ $("adminBtn").onclick = async () => {
 $("logoutBtn").onclick = () => { passcode = ""; try{ sessionStorage.removeItem("retro.passcode"); }catch(e){} render(); };
 $("revealBtn").onclick = () => run(() => api("/api/admin/hidden", {hidden: !state.hidden})).catch(() => {});
 $("sortAllBtn").onclick = () => run(() => api("/api/admin/sorted", {sorted: !state.sorted})).catch(() => {});
-$("hideVotesBtn").onclick = () => run(() => api("/api/admin/votes-hidden", {hidden: !state.votesHidden})).catch(() => {});
+$("hideVotesBtn").onclick = () => run(() => api("/api/admin/highlights-hidden", {hidden: !state.highlightsHidden})).catch(() => {});
 $("addColBtn").onclick = async () => {
   const t = await ask({title:"Add column", input:{placeholder:"Column name, e.g. Shout-outs"}, ok:"Add"});
   if(t && t.trim()) run(() => api("/api/admin/add-column", {title:t.trim()})).catch(() => {});
