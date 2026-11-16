@@ -67,7 +67,6 @@ class Store:
             "boardId": _new_id(),
             "title": "Team Retro",
             "hidden": True,
-            "sorted": False,
             "highlightsHidden": False,
             "columns": [dict(c) for c in DEFAULT_COLUMNS],
             "cards": [],
@@ -113,7 +112,6 @@ class Store:
             "boardId": d["boardId"],
             "title": d["title"],
             "hidden": hidden,
-            "sorted": d["sorted"],
             "highlightsHidden": d["highlightsHidden"],
             "columns": d["columns"],
             "cards": [
@@ -282,12 +280,6 @@ class Store:
             self._commit()
             return {"ok": True}
 
-    def set_sorted(self, sorted_):
-        with self.cond:
-            self.data["sorted"] = bool(sorted_)
-            self._commit()
-            return {"ok": True}
-
     def set_highlights_hidden(self, hidden):
         with self.cond:
             self.data["highlightsHidden"] = bool(hidden)
@@ -306,7 +298,6 @@ class Store:
             self.data["cards"] = []
             self.data["boardId"] = _new_id()
             self.data["hidden"] = True
-            self.data["sorted"] = False
             self.data["highlightsHidden"] = False
             self._commit()
             return {"ok": True, "archived": os.path.basename(archived) if archived else None}
@@ -518,9 +509,6 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/admin/hidden":
                 self._require_admin()
                 r = s.set_hidden(b.get("hidden"))
-            elif path == "/api/admin/sorted":
-                self._require_admin()
-                r = s.set_sorted(b.get("sorted"))
             elif path == "/api/admin/highlights-hidden":
                 self._require_admin()
                 r = s.set_highlights_hidden(b.get("hidden"))
@@ -646,8 +634,6 @@ header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:14px
 .btn.primary:hover{filter:brightness(1.05)}
 .btn.danger{color:var(--danger)}
 .btn:disabled{opacity:.5;cursor:default}
-.toggle{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);user-select:none}
-.toggle.off{opacity:.55}
 .icon{border:0;background:none;padding:4px;border-radius:6px;color:var(--muted);line-height:0}
 .icon:hover{background:var(--surface-2);color:var(--text)}
 .icon svg{width:16px;height:16px}
@@ -717,7 +703,6 @@ dialog .row{display:flex;justify-content:flex-end;gap:8px}
     <span class="anon" title="No names, IP addresses or timestamps are recorded">Anonymous</span>
   </div>
   <div class="tools">
-    <label class="toggle"><input type="checkbox" id="sortVotes"> Sort by votes</label>
     <span class="conn" id="conn" title="Connected"></span>
     <button class="btn" id="adminBtn">Facilitator</button>
   </div>
@@ -726,7 +711,6 @@ dialog .row{display:flex;justify-content:flex-end;gap:8px}
 <div class="adminbar" id="adminbar">
   <span class="label">Facilitator</span>
   <button class="btn primary" id="revealBtn">Reveal cards</button>
-  <button class="btn" id="sortAllBtn">Sort by votes for everyone</button>
   <button class="btn" id="hideVotesBtn">Hide my-vote highlights</button>
   <button class="btn" id="addColBtn">+ Add column</button>
   <span class="sep"></span>
@@ -786,9 +770,6 @@ try{ passcode = sessionStorage.getItem("retro.passcode") || ""; }catch(e){}
 let state = null, version = 0, editingId = null, dragId = null, renderPending = false;
 const drafts = {};
 const $ = id => document.getElementById(id);
-const sortBox = $("sortVotes");
-sortBox.checked = !!store.get("retro.sort", false);
-sortBox.onchange = () => { store.set("retro.sort", sortBox.checked); render(); };
 
 // ---- helpers
 function el(tag, attrs, ...kids){
@@ -873,19 +854,9 @@ function render(){
   $("adminBtn").hidden = admin;
   const rb = $("renameBoard"); rb.hidden = !admin; rb.innerHTML = ICON.pencil;
   $("revealBtn").textContent = state.hidden ? "Reveal cards" : "Hide cards";
-  const sortAll = $("sortAllBtn");
-  sortAll.textContent = state.sorted ? "Stop sorting for everyone" : "Sort by votes for everyone";
-  sortAll.disabled = state.hidden;
-  sortAll.title = state.hidden ? "Reveal cards first — there are no votes yet" : "";
   const hv = $("hideVotesBtn");
   hv.textContent = state.highlightsHidden ? "Show my-vote highlights" : "Hide my-vote highlights";
   hv.title = "Whether each person's own votes are highlighted on their screen";
-  sortBox.checked = state.sorted || !!store.get("retro.sort", false);
-  sortBox.disabled = state.sorted || state.hidden;
-  const sortLabel = sortBox.parentElement;
-  sortLabel.classList.toggle("off", sortBox.disabled);
-  sortLabel.title = state.sorted ? "The facilitator is sorting the board for everyone"
-    : state.hidden ? "Sorting is available once cards are revealed" : "Sort cards on your screen only";
 
   const banner = $("banner");
   const total = state.cards.length;
@@ -949,7 +920,8 @@ function updateColumn(node, col, admin){
   node.querySelector("textarea").setAttribute("aria-label", "New card for " + col.title);
 
   let list = cards.slice();
-  if((state.sorted || sortBox.checked) && !state.hidden) list.sort((a, b) => b.votes - a.votes);
+  // Once revealed, every column is always sorted by votes (ties keep posting order).
+  if(!state.hidden) list.sort((a, b) => b.votes - a.votes);
   const ul = node.querySelector(".cards");
   const keep = {};
   ul.querySelectorAll(".card.editing").forEach(li => keep[li.dataset.id] = li);
@@ -1119,7 +1091,6 @@ $("adminBtn").onclick = async () => {
 };
 $("logoutBtn").onclick = () => { passcode = ""; try{ sessionStorage.removeItem("retro.passcode"); }catch(e){} render(); };
 $("revealBtn").onclick = () => run(() => api("/api/admin/hidden", {hidden: !state.hidden})).catch(() => {});
-$("sortAllBtn").onclick = () => run(() => api("/api/admin/sorted", {sorted: !state.sorted})).catch(() => {});
 $("hideVotesBtn").onclick = () => run(() => api("/api/admin/highlights-hidden", {hidden: !state.highlightsHidden})).catch(() => {});
 $("addColBtn").onclick = async () => {
   const t = await ask({title:"Add column", input:{placeholder:"Column name, e.g. Shout-outs"}, ok:"Add"});

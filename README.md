@@ -12,14 +12,13 @@ An anonymous retro board for the whole team. It's one Python file with nothing t
 2. **Everyone else:** open the link in any browser. They don't need Python or any other software.
 3. Add cards to the columns (by default: What went well, What didn't go well, Actions and Kudos). They stay **hidden** until the facilitator reveals them.
    Each person can see their own cards while they write.
-4. Facilitator: click **Facilitator**, enter the passcode, then **Reveal cards**. Voting opens.
+4. Facilitator: click **Facilitator**, enter the passcode, then **Reveal cards**. Voting opens, and every column
+   is sorted by votes automatically, most-voted first.
 5. At the end: **Export → Markdown / CSV / JSON**, then **Clear board** for next time.
    Clearing also saves an archive copy, `retro-archive-<date>.json`.
 
 ## Facilitator controls
 - Reveal or hide cards
-- **Sort by votes for everyone**: puts the most-voted cards at the top of each column on every screen,
-  handy while discussing. (Anyone can also tick **Sort by votes** to sort just their own screen.)
 - **Hide my-vote highlights**: vote counts stay visible, but nobody's screen highlights the cards they
   voted for (handy when screen-sharing). Click **Show my-vote highlights** to turn it back on.
 - Rename the board or any column (use the pencil icons)
